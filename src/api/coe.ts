@@ -2,18 +2,71 @@ import type { BiddingRound, CoeDataset, CoeRecord, RawCoeRecord } from '../types
 import { parseCategory } from '../lib/categories'
 import { sampleRecords } from '../data/sampleData'
 
-// data.gov.sg "COE Bidding Results" datastore resource.
-const RESOURCE_ID = 'd_22094bf608253d36c0c63b52d852dd6e'
-const DATASTORE_URL = 'https://data.gov.sg/api/action/datastore_search'
-const PAGE_LIMIT = 5000
+// data.gov.sg COE Bidding Results / Prices dataset (LTA).
+// https://data.gov.sg/datasets/d_69b3380ad7e51aff3a7dcc84eba52b8a/view
+const DATASET_ID = 'd_69b3380ad7e51aff3a7dcc84eba52b8a'
+const API_BASE = 'https://api-open.data.gov.sg/v1/public/api/datasets'
 
-interface DatastoreResponse {
-  success: boolean
-  result?: {
-    records: RawCoeRecord[]
-    total: number
+// ---- CSV parser -----------------------------------------------------------
+// data.gov.sg poll-download returns a signed URL to a CSV file.
+
+function parseCsv(csv: string): RawCoeRecord[] {
+  const lines = csv.split(/\r?\n/).filter(Boolean)
+  if (lines.length < 2) return []
+  const headers = lines[0].split(',').map((h) => h.trim().toLowerCase().replace(/\s+/g, '_'))
+  const out: RawCoeRecord[] = []
+  for (let i = 1; i < lines.length; i++) {
+    const parts = lines[i].split(',')
+    if (parts.length < headers.length) continue
+    const row: Record<string, string> = {}
+    headers.forEach((h, j) => { row[h] = (parts[j] ?? '').trim() })
+    // Accommodate any header naming variations data.gov.sg might use.
+    out.push({
+      month: row['month'] ?? row['bidding_month'] ?? '',
+      bidding_no: row['bidding_no'] ?? row['round'] ?? '1',
+      vehicle_class: row['vehicle_class'] ?? row['category'] ?? '',
+      quota: row['quota'] ?? '0',
+      bids_success: row['bids_success'] ?? row['successful_bids'] ?? '0',
+      bids_received: row['bids_received'] ?? row['total_bids'] ?? '0',
+      premium: row['premium'] ?? row['coe_premium'] ?? '0',
+    })
   }
+  return out
 }
+
+// ---- New data.gov.sg API (v1 open) ----------------------------------------
+// Flow: GET initiate-download → GET poll-download (retry until URL ready) →
+//       fetch CSV from signed URL.
+
+interface PollResponse {
+  code: number
+  errMsg?: string
+  data?: { url?: string }
+}
+
+async function pollForUrl(signal?: AbortSignal): Promise<string> {
+  const pollUrl = `${API_BASE}/${DATASET_ID}/poll-download`
+  for (let attempt = 0; attempt < 8; attempt++) {
+    const res = await fetch(pollUrl, { signal })
+    if (!res.ok) throw new Error(`poll-download ${res.status}`)
+    const json = (await res.json()) as PollResponse
+    if (json.code === 0 && json.data?.url) return json.data.url
+    // Not ready yet — wait before retrying.
+    await new Promise((r) => setTimeout(r, 1500))
+  }
+  throw new Error('poll-download timed out waiting for URL')
+}
+
+async function fetchViaNewApi(signal?: AbortSignal): Promise<RawCoeRecord[]> {
+  // Kick off the async export job.
+  await fetch(`${API_BASE}/${DATASET_ID}/initiate-download`, { signal })
+  const downloadUrl = await pollForUrl(signal)
+  const csvRes = await fetch(downloadUrl, { signal })
+  if (!csvRes.ok) throw new Error(`CSV download ${csvRes.status}`)
+  return parseCsv(await csvRes.text())
+}
+
+// ---- Record normalization --------------------------------------------------
 
 function toNum(v: number | string | undefined): number {
   if (v == null) return 0
@@ -21,8 +74,6 @@ function toNum(v: number | string | undefined): number {
   return Number.isFinite(n) ? n : 0
 }
 
-// Convert a raw datastore record into our normalized shape. Returns null when
-// the row can't be mapped (unknown category, missing month, etc.).
 export function normalizeRecord(raw: RawCoeRecord): CoeRecord | null {
   const category = parseCategory(raw.vehicle_class ?? '')
   if (!category) return null
@@ -61,7 +112,6 @@ function normalizeAll(raw: RawCoeRecord[]): CoeRecord[] {
     const n = normalizeRecord(r)
     if (n && n.premium > 0) out.push(n)
   }
-  // Sort chronologically, then by round, then category.
   out.sort((a, b) => {
     if (a.month !== b.month) return a.month < b.month ? -1 : 1
     if (a.round !== b.round) return a.round - b.round
@@ -70,34 +120,13 @@ function normalizeAll(raw: RawCoeRecord[]): CoeRecord[] {
   return out
 }
 
-async function fetchPage(offset: number, signal?: AbortSignal): Promise<DatastoreResponse> {
-  const url = `${DATASTORE_URL}?resource_id=${RESOURCE_ID}&limit=${PAGE_LIMIT}&offset=${offset}`
-  const res = await fetch(url, { signal })
-  if (!res.ok) throw new Error(`data.gov.sg responded ${res.status}`)
-  return (await res.json()) as DatastoreResponse
-}
+// ---- Primary entry point --------------------------------------------------
 
-// Fetch the full COE history from data.gov.sg, paging until exhausted.
-async function fetchLive(signal?: AbortSignal): Promise<RawCoeRecord[]> {
-  const all: RawCoeRecord[] = []
-  let offset = 0
-  // Guard against runaway paging.
-  for (let page = 0; page < 50; page++) {
-    const data = await fetchPage(offset, signal)
-    if (!data.success || !data.result) throw new Error('Unexpected API response')
-    all.push(...data.result.records)
-    offset += data.result.records.length
-    if (data.result.records.length < PAGE_LIMIT || offset >= data.result.total) break
-  }
-  return all
-}
-
-// Primary entry point: try the live API, fall back to the bundled sample set.
 export async function loadCoeData(signal?: AbortSignal): Promise<CoeDataset> {
   try {
-    const raw = await fetchLive(signal)
+    const raw = await fetchViaNewApi(signal)
     const records = normalizeAll(raw)
-    if (records.length === 0) throw new Error('No records returned')
+    if (records.length === 0) throw new Error('No records parsed from API response')
     return { records, source: 'live', fetchedAt: new Date() }
   } catch (err) {
     if (signal?.aborted) throw err
