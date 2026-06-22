@@ -27,6 +27,8 @@ jobs:
           node-version: 20
           cache: npm
       - run: npm ci
+      - name: Fetch COE data
+        run: node scripts/fetch-coe-data.mjs
       - run: npm run build
       # Enables Pages automatically (build_type=workflow) so no manual
       # Settings toggle is required for the first deploy.

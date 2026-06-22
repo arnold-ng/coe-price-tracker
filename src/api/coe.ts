@@ -120,23 +120,53 @@ function normalizeAll(raw: RawCoeRecord[]): CoeRecord[] {
   return out
 }
 
+// ---- Build-time static JSON (fetched by CI before npm run build) ----------
+
+interface StaticJson {
+  records: RawCoeRecord[]
+  fetchedAt: string
+}
+
+async function fetchFromStaticJson(signal?: AbortSignal): Promise<{ raw: RawCoeRecord[]; fetchedAt: Date }> {
+  const res = await fetch('./coe-data.json', { signal })
+  if (!res.ok) throw new Error(`coe-data.json ${res.status}`)
+  const json = (await res.json()) as StaticJson
+  if (!Array.isArray(json.records) || json.records.length === 0) {
+    throw new Error('coe-data.json has no records')
+  }
+  return { raw: json.records, fetchedAt: new Date(json.fetchedAt) }
+}
+
 // ---- Primary entry point --------------------------------------------------
 
 export async function loadCoeData(signal?: AbortSignal): Promise<CoeDataset> {
+  // Try the pre-built static file first (written by CI at build time).
   try {
-    const raw = await fetchViaNewApi(signal)
+    const { raw, fetchedAt } = await fetchFromStaticJson(signal)
     const records = normalizeAll(raw)
-    if (records.length === 0) throw new Error('No records parsed from API response')
-    return { records, source: 'live', fetchedAt: new Date() }
-  } catch (err) {
-    if (signal?.aborted) throw err
-    const msg = err instanceof Error ? err.message : String(err)
-    console.warn('COE live fetch failed, using bundled sample data:', msg)
-    return {
-      records: normalizeAll(sampleRecords),
-      source: 'sample',
-      fetchedAt: new Date(),
-      liveError: msg,
+    if (records.length === 0) throw new Error('No records parsed from static JSON')
+    return { records, source: 'live', fetchedAt }
+  } catch (staticErr) {
+    if (signal?.aborted) throw staticErr
+    const staticMsg = staticErr instanceof Error ? staticErr.message : String(staticErr)
+    console.info('Static coe-data.json unavailable, trying live API:', staticMsg)
+
+    // Fall back to the live API (works in dev; may hit rate limits in prod).
+    try {
+      const raw = await fetchViaNewApi(signal)
+      const records = normalizeAll(raw)
+      if (records.length === 0) throw new Error('No records parsed from API response')
+      return { records, source: 'live', fetchedAt: new Date() }
+    } catch (err) {
+      if (signal?.aborted) throw err
+      const msg = err instanceof Error ? err.message : String(err)
+      console.warn('COE live fetch failed, using bundled sample data:', msg)
+      return {
+        records: normalizeAll(sampleRecords),
+        source: 'sample',
+        fetchedAt: new Date(),
+        liveError: msg,
+      }
     }
   }
 }
