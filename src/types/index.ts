@@ -34,6 +34,7 @@ export interface CoeDataset {
   records: CoeRecord[]
   source: DataSource
   fetchedAt: Date
+  liveError?: string // set when live fetch failed and sample fallback was used
 }
 
 // What overlays can be layered onto the trend chart.

@@ -130,11 +130,13 @@ export async function loadCoeData(signal?: AbortSignal): Promise<CoeDataset> {
     return { records, source: 'live', fetchedAt: new Date() }
   } catch (err) {
     if (signal?.aborted) throw err
-    console.warn('COE live fetch failed, using bundled sample data:', err)
+    const msg = err instanceof Error ? err.message : String(err)
+    console.warn('COE live fetch failed, using bundled sample data:', msg)
     return {
       records: normalizeAll(sampleRecords),
       source: 'sample',
       fetchedAt: new Date(),
+      liveError: msg,
     }
   }
 }

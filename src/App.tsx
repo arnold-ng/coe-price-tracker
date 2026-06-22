@@ -31,7 +31,7 @@ export default function App() {
           </div>
           {data && (
             <div className="text-right text-xs text-slate-400">
-              <DataSourceBadge source={data.source} />
+              <DataSourceBadge source={data.source} liveError={data.liveError} />
               <div className="mt-1">
                 Updated {data.fetchedAt.toLocaleString('en-SG', { dateStyle: 'medium', timeStyle: 'short' })}
               </div>
@@ -89,16 +89,17 @@ export default function App() {
   )
 }
 
-function DataSourceBadge({ source }: { source: 'live' | 'sample' }) {
+function DataSourceBadge({ source, liveError }: { source: 'live' | 'sample'; liveError?: string }) {
   const live = source === 'live'
   return (
     <span
+      title={liveError ? `Live fetch failed: ${liveError}` : undefined}
       className={`inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-[11px] font-medium ${
         live ? 'bg-green-100 text-green-700' : 'bg-amber-100 text-amber-700'
       }`}
     >
       <span className={`h-1.5 w-1.5 rounded-full ${live ? 'bg-green-500' : 'bg-amber-500'}`} />
-      {live ? 'Live data.gov.sg' : 'Sample data'}
+      {live ? 'Live data.gov.sg' : liveError ? `Sample (${liveError.slice(0, 60)})` : 'Sample data'}
     </span>
   )
 }
