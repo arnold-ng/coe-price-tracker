@@ -110,7 +110,9 @@ function normalizeAll(raw: RawCoeRecord[]): CoeRecord[] {
   const out: CoeRecord[] = []
   for (const r of raw) {
     const n = normalizeRecord(r)
-    if (n && n.premium > 0) out.push(n)
+    // Skip clearly invalid / placeholder entries (e.g. upcoming rounds that
+    // data.gov.sg pre-publishes with a stub premium like $1–$2 before bidding).
+    if (n && n.premium >= 100) out.push(n)
   }
   out.sort((a, b) => {
     if (a.month !== b.month) return a.month < b.month ? -1 : 1

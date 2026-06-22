@@ -42,6 +42,10 @@ function parseCsv(csv) {
     if (parts.length < headers.length) continue
     const row = {}
     headers.forEach((h, j) => { row[h] = (parts[j] ?? '').trim() })
+    const premium = row.premium ?? row.coe_premium ?? '0'
+    // Skip upcoming/placeholder rounds that data.gov.sg pre-publishes before
+    // actual bidding with stub premiums like $1–$2.
+    if (Number(premium.replace(/[^0-9.-]/g, '')) < 100) continue
     records.push({
       month: row.month ?? row.bidding_month ?? '',
       bidding_no: row.bidding_no ?? row.round ?? '1',
@@ -49,7 +53,7 @@ function parseCsv(csv) {
       quota: row.quota ?? '0',
       bids_success: row.bids_success ?? row.successful_bids ?? '0',
       bids_received: row.bids_received ?? row.total_bids ?? '0',
-      premium: row.premium ?? row.coe_premium ?? '0',
+      premium,
     })
   }
   return records
