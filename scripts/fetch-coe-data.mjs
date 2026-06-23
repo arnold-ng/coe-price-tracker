@@ -31,14 +31,36 @@ async function pollForUrl() {
   throw new Error('poll-download timed out after 60s')
 }
 
+// Split a single CSV line, honouring double-quoted fields that contain commas
+// (e.g. bids_received is exported as "1,233" once the count passes 999).
+function splitCsvLine(line) {
+  const out = []
+  let cur = ''
+  let inQuotes = false
+  for (let i = 0; i < line.length; i++) {
+    const ch = line[i]
+    if (inQuotes) {
+      if (ch === '"') {
+        if (line[i + 1] === '"') { cur += '"'; i++ } else inQuotes = false
+      } else cur += ch
+    } else if (ch === '"') {
+      inQuotes = true
+    } else if (ch === ',') {
+      out.push(cur); cur = ''
+    } else cur += ch
+  }
+  out.push(cur)
+  return out
+}
+
 function parseCsv(csv) {
   const lines = csv.split(/\r?\n/).filter(Boolean)
   if (lines.length < 2) throw new Error('CSV has no data rows')
-  const headers = lines[0].split(',').map(h => h.trim().toLowerCase().replace(/\s+/g, '_'))
+  const headers = splitCsvLine(lines[0]).map(h => h.trim().toLowerCase().replace(/\s+/g, '_'))
   console.log('  CSV headers:', headers.join(', '))
   const records = []
   for (let i = 1; i < lines.length; i++) {
-    const parts = lines[i].split(',')
+    const parts = splitCsvLine(lines[i])
     if (parts.length < headers.length) continue
     const row = {}
     headers.forEach((h, j) => { row[h] = (parts[j] ?? '').trim() })
