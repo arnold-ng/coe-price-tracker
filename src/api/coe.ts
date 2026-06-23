@@ -152,7 +152,11 @@ interface StaticJson {
 }
 
 async function fetchFromStaticJson(signal?: AbortSignal): Promise<{ raw: RawCoeRecord[]; fetchedAt: Date }> {
-  const res = await fetch('./coe-data.json', { signal })
+  // GitHub Pages serves this file with cache-control: max-age=600, which can
+  // leave visitors on a stale dataset for up to 10 min after a deploy. We can't
+  // change Pages' headers, so force the browser to revalidate against the server
+  // (etag-based, so unchanged files still come back as a cheap 304) on every load.
+  const res = await fetch('./coe-data.json', { signal, cache: 'no-cache' })
   if (!res.ok) throw new Error(`coe-data.json ${res.status}`)
   const json = (await res.json()) as StaticJson
   if (!Array.isArray(json.records) || json.records.length === 0) {
