@@ -1,24 +1,27 @@
 name: Deploy to GitHub Pages
 
+# Both environments share one GitHub Pages site (a repo only ever has one):
+#   main             -> site root      (production)
+#   any other branch -> /staging/      (staging; last push to any non-main wins)
+# Published to the `gh-pages` branch, so Pages must be configured to
+# "Deploy from a branch -> gh-pages / (root)".
 on:
   push:
     branches:
-      - claude/coe-price-dashboard-71t2rh
+      - '**'
   workflow_dispatch:
 
-# Allow the workflow to publish to GitHub Pages.
+# `contents: write` lets the action push the built site to `gh-pages`.
 permissions:
-  contents: read
-  pages: write
-  id-token: write
+  contents: write
 
-# One concurrent deploy; newer pushes cancel in-progress runs.
+# Scope concurrency per branch so a staging deploy never cancels a prod deploy.
 concurrency:
-  group: pages
+  group: pages-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
-  build:
+  deploy:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -30,21 +33,23 @@ jobs:
       - name: Fetch COE data
         run: node scripts/fetch-coe-data.mjs
       - run: npm run build
-      # Enables Pages automatically (build_type=workflow) so no manual
-      # Settings toggle is required for the first deploy.
-      - uses: actions/configure-pages@v5
-        with:
-          enablement: true
-      - uses: actions/upload-pages-artifact@v3
-        with:
-          path: dist
 
-  deploy:
-    needs: build
-    runs-on: ubuntu-latest
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
-    steps:
-      - id: deployment
-        uses: actions/deploy-pages@v4
+      # Production: main -> site root.
+      # keep_files preserves the sibling /staging folder from being wiped.
+      - name: Deploy production (root)
+        if: github.ref == 'refs/heads/main'
+        uses: peaceiris/actions-gh-pages@v4
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: ./dist
+          keep_files: true
+
+      # Staging: any non-main branch -> /staging subpath.
+      # destination_dir scopes the publish/clean to /staging, leaving root prod intact.
+      - name: Deploy staging (/staging)
+        if: github.ref != 'refs/heads/main'
+        uses: peaceiris/actions-gh-pages@v4
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: ./dist
+          destination_dir: staging

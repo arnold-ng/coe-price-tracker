@@ -69,6 +69,26 @@ src/
 scripts/       sample-data generator
 ```
 
+## Deployment
+
+Both environments share the single GitHub Pages site this repo gets (a repo only
+ever has one Pages URL), separated by path:
+
+| Branch | URL | Environment |
+| --- | --- | --- |
+| `main` | `https://<user>.github.io/coe-price-tracker/` | **production** |
+| any other branch (`feat/…`, `fix/…`, etc.) | `https://<user>.github.io/coe-price-tracker/staging/` | **staging** |
+
+`.github/workflows/deploy.yml` builds on every push and publishes to the
+`gh-pages` branch: `main` to the root, any non-`main` branch to `/staging/`.
+All non-`main` branches publish to the same `/staging/` folder, so the most
+recent push wins there. The relative Vite `base: './'` makes the same build work
+at both the root and the `/staging/` subpath.
+
+**One-time setup:** in **Settings → Pages**, set the source to **Deploy from a
+branch → `gh-pages` / `(root)`**. (The previous setup used "GitHub Actions" as
+the source; this branch-based flow requires the toggle above.)
+
 ## Roadmap (next phases)
 
 - **Phase 2:** calendar heatmap, transparent bid-price estimator, all-time stats
