@@ -10,13 +10,35 @@ const API_BASE = 'https://api-open.data.gov.sg/v1/public/api/datasets'
 // ---- CSV parser -----------------------------------------------------------
 // data.gov.sg poll-download returns a signed URL to a CSV file.
 
+// Split a single CSV line, honouring double-quoted fields that contain commas
+// (e.g. bids_received is exported as "1,233" once the count passes 999).
+function splitCsvLine(line: string): string[] {
+  const out: string[] = []
+  let cur = ''
+  let inQuotes = false
+  for (let i = 0; i < line.length; i++) {
+    const ch = line[i]
+    if (inQuotes) {
+      if (ch === '"') {
+        if (line[i + 1] === '"') { cur += '"'; i++ } else inQuotes = false
+      } else cur += ch
+    } else if (ch === '"') {
+      inQuotes = true
+    } else if (ch === ',') {
+      out.push(cur); cur = ''
+    } else cur += ch
+  }
+  out.push(cur)
+  return out
+}
+
 function parseCsv(csv: string): RawCoeRecord[] {
   const lines = csv.split(/\r?\n/).filter(Boolean)
   if (lines.length < 2) return []
-  const headers = lines[0].split(',').map((h) => h.trim().toLowerCase().replace(/\s+/g, '_'))
+  const headers = splitCsvLine(lines[0]).map((h) => h.trim().toLowerCase().replace(/\s+/g, '_'))
   const out: RawCoeRecord[] = []
   for (let i = 1; i < lines.length; i++) {
-    const parts = lines[i].split(',')
+    const parts = splitCsvLine(lines[i])
     if (parts.length < headers.length) continue
     const row: Record<string, string> = {}
     headers.forEach((h, j) => { row[h] = (parts[j] ?? '').trim() })
